@@ -1,0 +1,136 @@
+install.packages("openxlsx")
+install.packages("writexl")
+library(openxlsx)
+library(writexl)
+library(ggplot2)
+library(tidyr)
+library(viridis)
+
+##read sheet###############################################################################################
+###US#######################################################################################################
+US_index <- read.xlsx
+US_index_long <- gather(US_index, key = "Paper", value = "Value")
+# use stats::loess 
+loess_fit <- loess(Value ~ Year, data =US_index_long, span = 0.5)
+
+fitted_values <- data.frame(
+  Year = US_index_long$Year,
+  Fitted = predict(loess_fit, newdata = US_index_long$Year)
+)
+
+pred <- predict(loess_fit, newdata = US_index_long$Year, se = TRUE)
+fitted_values <- data.frame(
+  Year = US_index_long$Year,
+  Fitted = pred$fit,
+  Upper = pred$fit + 1.96 * pred$se.fit,
+  Lower = pred$fit - 1.96 * pred$se.fit
+)
+
+fitted_values
+
+###China#######################################################################################################
+China_index <- read.xlsx
+China_index_long <- gather(China_index, key = "Paper", value = "Value")
+# use stats::loess, span = 0.5
+loess_fit <- loess(Value ~ Year, data =China_index_long, span = 0.5)
+
+fitted_values <- data.frame(
+  Year = China_index_long$Year,
+  Fitted = predict(loess_fit, newdata = China_index_long$Year)
+)
+
+pred <- predict(loess_fit, newdata = China_index_long$Year, se = TRUE)
+fitted_values <- data.frame(
+  Year = China_index_long$Year,
+  Fitted = pred$fit,
+  Upper = pred$fit + 1.96 * pred$se.fit,
+  Lower = pred$fit - 1.96 * pred$se.fit
+)
+
+fitted_values
+
+###Japan#######################################################################################################
+Japan_index <- read.xlsx
+Japan_index_long <- gather(Japan_index, key = "Paper", value = "Value")
+
+loess_fit <- loess(Value ~ Year, data =Japan_index_long, span = 0.5)
+
+fitted_values <- data.frame(
+  Year = Japan_index_long$Year,
+  Fitted = predict(loess_fit, newdata = Japan_index_long$Year)
+)
+
+pred <- predict(loess_fit, newdata = Japan_index_long$Year, se = TRUE)
+fitted_values <- data.frame(
+  Year = Japan_index_long$Year,
+  Fitted = pred$fit,
+  Upper = pred$fit + 1.96 * pred$se.fit,
+  Lower = pred$fit - 1.96 * pred$se.fit
+)
+
+fitted_values
+
+###UK#######################################################################################################
+UK_index <- read.xlsx
+UK_index_long <- gather(UK_index, key = "Paper", value = "Value")
+
+loess_fit <- loess(Value ~ Year, data =UK_index_long, span = 0.5)
+
+fitted_values <- data.frame(
+  Year = UK_index_long$Year,
+  Fitted = predict(loess_fit, newdata = UK_index_long$Year)
+)
+
+fitted_values
+
+###Germany#######################################################################################################
+Germany_index <- read.xlsx("/Users/zhangshan/Desktop/energysecurity/energy_security_index/paper/ESIsummary.xlsx",
+                           sheet = "Germany1")
+Germany_index_long <- gather(Germany_index, key = "Paper", value = "Value")
+loess_fit <- loess(Value ~ Year, data =Germany_index_long, span = 0.5)
+
+fitted_values <- data.frame(
+  Year = Germany_index_long$Year,
+  Fitted = predict(loess_fit, newdata = Germany_index_long$Year)
+)
+
+fitted_values
+
+###France#######################################################################################################
+France_index <- read.xlsx("/Users/zhangshan/Desktop/energysecurity/energy_security_index/paper/ESIsummary.xlsx",
+                          sheet = "France1")
+France_index_long <- gather(France_index, key = "Paper", value = "Value")
+
+loess_fit <- loess(Value ~ Year, data =France_index_long, span = 0.5)
+
+fitted_values <- data.frame(
+  Year = France_index_long$Year,
+  Fitted = predict(loess_fit, newdata = France_index_long$Year)
+)
+
+fitted_values
+
+
+###plot figure#######################################################################################################
+France = ggplot(France_index_long, aes(x = Year, y = Value*100)) +
+  geom_jitter(aes(color = Paper), width = 0, size = 0.9, alpha = 0.7) +
+  geom_boxplot(aes(group = Year), color = "#666666",alpha = 1, outlier.shape = NA, size = 0.3) +
+  geom_smooth(aes(group = 1), method = "loess", color = "red", fill = "gray", alpha = 0.3, size = 1.2, span = 0.50) +
+  labs(title = "France", y = NULL, x = NULL) +
+  theme_minimal() +
+  scale_color_viridis(discrete = TRUE) +
+  scale_y_continuous(limits = c(20, 80)) +
+  theme(
+    plot.title = element_text(size = 22, face = "bold", hjust = 0.5, color = "black"),  
+    axis.text.x = element_text(size = 12, color = "black"),   
+    axis.text.y = element_text(size = 12, color = "black"),   
+    #axis.text.y = element_text(size = 16, color = "black"),   
+    legend.position = "none",
+    legend.text = element_text(color = "black"),             
+    legend.title = element_text(color = "black")             
+  )
+
+
+install.packages("patchwork")
+library(patchwork)
+ggsave("ESI_plot.pdf", plot = (US | China | Japan) / (UK | Germany | France), width = 16, height = 10, dpi = 300)
