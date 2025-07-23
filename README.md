@@ -2,7 +2,7 @@
 
 This repository include three code files and one dataset:
 
-code file1: Access ESI across six countries: an R script corresponding to the section Dynamic changes of ESI across economies.
+code file1: Assess ESI across six countries: an R script corresponding to the section Dynamic changes of ESI across economies.
 
 code file2: Key drivers of ESI: a Python script corresponding to the section Key drivers of ESI variation.
 
