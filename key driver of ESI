@@ -1,0 +1,183 @@
+import torch
+import shap
+import seaborn as sns
+import torch.nn as nn
+import torch.optim as optim
+import torch.nn.functional as F
+import numpy as np
+import pandas as pd
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+import matplotlib.pyplot as plt
+from sklearn.feature_selection import SelectKBest, f_regression
+from sklearn.ensemble import RandomForestRegressor
+
+import random
+def set_seed(seed=42):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)  
+
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+set_seed(42)
+
+##same for six countries
+df = pd.DataFrame(data)
+features = ['ES1','ES2','ES3','ES4','ES5','ES6','ES7','ES8','ES9','ES10','ES11','ES12',
+            'ED1', 'ED2', 'ED3', 'ED4', 'ED5', 'ED6', 'ED7','ED8',
+            'EC1', 'EC2', 'EC3', 'EN1','EN2','GO1']
+target = 'ESI'
+
+
+X = df[features].values
+y = df[target].values.reshape(-1, 1)
+
+scaler_X = StandardScaler()
+scaler_y = StandardScaler()
+
+X_scaled = scaler_X.fit_transform(X)
+y_scaled = scaler_y.fit_transform(y)
+
+split_point = -6
+X_train, X_test = X_scaled[:split_point], X_scaled[split_point:]
+y_train, y_test = y_scaled[:split_point], y_scaled[split_point:]
+
+
+X_train_tensor = torch.FloatTensor(X_train)
+y_train_tensor = torch.FloatTensor(y_train)
+X_test_tensor = torch.FloatTensor(X_test)
+y_test_tensor = torch.FloatTensor(y_test)
+
+
+# method
+class ESIDataset(torch.utils.data.Dataset):
+    def __init__(self, X, y):
+        self.X = X
+        self.y = y
+
+    def __len__(self):
+        return len(self.X)
+
+    def __getitem__(self, idx):
+        return self.X[idx], self.y[idx]
+
+train_dataset = ESIDataset(X_train_tensor, y_train_tensor)
+train_loader = torch.utils.data.DataLoader(train_dataset,
+                                           batch_size=1,
+                                           shuffle=True)
+
+class ESIPredictor(nn.Module):
+    def __init__(self, input_size):
+        super(ESIPredictor, self).__init__()
+        self.layer1 = nn.Linear(input_size, 64)
+        self.layer2 = nn.Linear(64, 32)
+        self.output = nn.Linear(32, 1)
+        self.dropout = nn.Dropout(0.5)
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+        x = self.relu(self.layer1(x))
+        x = self.dropout(x)
+        x = self.relu(self.layer2(x))
+        x = self.dropout(x)
+        x = self.output(x)
+        return x
+
+input_size = X_train.shape[1]
+model = ESIPredictor(input_size)
+
+criterion = nn.L1Loss()
+#criterion = nn.SmoothL1Loss()
+#optimizer = optim.Adam(model.parameters(), lr=0.0001)
+optimizer = optim.AdamW(model.parameters(), lr=0.00001, weight_decay=1e-4)
+
+# train model
+num_epochs = 1500
+train_losses = []
+
+for epoch in range(num_epochs):
+    model.train()
+    running_loss = 0.0
+    for inputs, labels in train_loader:
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+        running_loss += loss.item()
+
+    epoch_loss = running_loss / len(train_loader)
+    train_losses.append(epoch_loss)
+
+    if (epoch + 1) % 100 == 0:
+        print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {epoch_loss:.6f}')
+
+
+# feature contribution
+model.eval()
+contributions = []
+
+background = X_train_tensor[:20]  
+explainer = shap.GradientExplainer(model, background)
+
+all_data_tensor = torch.FloatTensor(X_scaled)
+shap_values_scaled = explainer.shap_values(all_data_tensor)
+
+shap_values_scaled = np.array(shap_values_scaled).squeeze()
+
+with torch.no_grad():
+    background_pred = model(background)
+base_value_scaled = torch.mean(background_pred).item()  
+
+scaler_scale = scaler_y.scale_[0].astype(np.float64)  
+base_value_real = scaler_y.inverse_transform(np.array([[base_value_scaled]], dtype=np.float64))[0][0]
+
+shap_values_real = np.array(shap_values_scaled, dtype=np.float64) * scaler_scale
+
+num_features = len(features)
+base_contribution = np.full_like(shap_values_real,
+                               base_value_real / num_features,
+                               dtype=np.float64)
+contrib_matrix = shap_values_real + base_contribution
+
+with torch.no_grad():
+    pred_scaled = model(all_data_tensor).numpy().squeeze()
+pred_real = scaler_y.inverse_transform(
+    pred_scaled.reshape(-1, 1).astype(np.float64)
+).squeeze()
+
+for i in range(len(shap_values_real)):
+    base_contribution = base_value_real / num_features
+    contrib_matrix[i] = shap_values_real[i] + base_contribution
+
+
+# ======== result========
+real_esi = df[target].values
+years = df['Year'].values
+
+result_df = pd.DataFrame({
+    "Year": years,
+    "ESI_Real": real_esi,
+    "ESI_Pred": pred_real,
+    **{feature: contrib_matrix[:, idx] for idx, feature in enumerate(features)}
+})
+
+result_df = result_df.sort_values("Year").reset_index(drop=True)
+
+result_df.to_excel("feature_actual_contributions_France.xlsx", index=False)
+
+
+shap_df = pd.DataFrame(
+    shap_values_real,
+    columns=[f"{col}_shap" for col in features]
+)
+shap_df.insert(0, "Year", years)  
+
+shap_df.to_excel("shap_raw_values_real_scale.xlsx", index=False)
+
+
+
