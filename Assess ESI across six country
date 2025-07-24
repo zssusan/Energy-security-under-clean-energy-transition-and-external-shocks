@@ -8,7 +8,7 @@ library(viridis)
 
 ##read sheet###############################################################################################
 ###US#######################################################################################################
-US_index <- read.xlsx
+US_index <- read.xlsx(sheet = "US")
 US_index_long <- gather(US_index, key = "Paper", value = "Value")
 # use stats::loess 
 loess_fit <- loess(Value ~ Year, data =US_index_long, span = 0.5)
@@ -29,7 +29,7 @@ fitted_values <- data.frame(
 fitted_values
 
 ###China#######################################################################################################
-China_index <- read.xlsx
+China_index <- read.xlsx(sheet = "China")
 China_index_long <- gather(China_index, key = "Paper", value = "Value")
 # use stats::loess, span = 0.5
 loess_fit <- loess(Value ~ Year, data =China_index_long, span = 0.5)
@@ -50,7 +50,7 @@ fitted_values <- data.frame(
 fitted_values
 
 ###Japan#######################################################################################################
-Japan_index <- read.xlsx
+Japan_index <- read.xlsx(sheet = "Japan")
 Japan_index_long <- gather(Japan_index, key = "Paper", value = "Value")
 
 loess_fit <- loess(Value ~ Year, data =Japan_index_long, span = 0.5)
@@ -71,7 +71,7 @@ fitted_values <- data.frame(
 fitted_values
 
 ###UK#######################################################################################################
-UK_index <- read.xlsx
+UK_index <- read.xlsx(sheet = "UK")
 UK_index_long <- gather(UK_index, key = "Paper", value = "Value")
 
 loess_fit <- loess(Value ~ Year, data =UK_index_long, span = 0.5)
@@ -84,9 +84,9 @@ fitted_values <- data.frame(
 fitted_values
 
 ###Germany#######################################################################################################
-Germany_index <- read.xlsx("/Users/zhangshan/Desktop/energysecurity/energy_security_index/paper/ESIsummary.xlsx",
-                           sheet = "Germany1")
+Germany_index <- read.xlsx(sheet = "Germany")
 Germany_index_long <- gather(Germany_index, key = "Paper", value = "Value")
+
 loess_fit <- loess(Value ~ Year, data =Germany_index_long, span = 0.5)
 
 fitted_values <- data.frame(
@@ -97,8 +97,7 @@ fitted_values <- data.frame(
 fitted_values
 
 ###France#######################################################################################################
-France_index <- read.xlsx("/Users/zhangshan/Desktop/energysecurity/energy_security_index/paper/ESIsummary.xlsx",
-                          sheet = "France1")
+France_index <- read.xlsx(sheet = "France")
 France_index_long <- gather(France_index, key = "Paper", value = "Value")
 
 loess_fit <- loess(Value ~ Year, data =France_index_long, span = 0.5)
