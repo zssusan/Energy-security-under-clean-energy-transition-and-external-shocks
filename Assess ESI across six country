@@ -112,6 +112,96 @@ fitted_values
 
 
 ###plot figure#######################################################################################################
+US = ggplot(US_index_long, aes(x = Year, y = Value*100)) +
+  geom_jitter(aes(color = Paper), width = 0, size = 0.9, alpha = 0.7) +
+  geom_boxplot(aes(group = Year), color = "#666666",alpha = 1, outlier.shape = NA, size = 0.3) +
+  geom_smooth(aes(group = 1), method = "loess", color = "red", fill = "gray", alpha = 0.3, size = 1.2, span = 0.50) +
+  labs(title = "the U.S.", y = NULL, x = NULL) +
+  theme_minimal() +
+  scale_color_viridis(discrete = TRUE) +
+  scale_y_continuous(limits = c(20, 80)) +
+  theme(
+    plot.title = element_text(size = 22, face = "bold", hjust = 0.5, color = "black"),  
+    axis.text.x = element_text(size = 12, color = "black"),   
+    axis.text.y = element_text(size = 12, color = "black"),   
+    #axis.text.y = element_text(size = 16, color = "black"),   
+    legend.position = "none",
+    legend.text = element_text(color = "black"),             
+    legend.title = element_text(color = "black")             
+  )
+
+China = ggplot(China_index_long, aes(x = Year, y = Value*100)) +
+  geom_jitter(aes(color = Paper), width = 0, size = 0.9, alpha = 0.7) +
+  geom_boxplot(aes(group = Year), color = "#666666",alpha = 1, outlier.shape = NA, size = 0.3) +
+  geom_smooth(aes(group = 1), method = "loess", color = "red", fill = "gray", alpha = 0.3, size = 1.2, span = 0.50) +
+  labs(title = "China", y = NULL, x = NULL) +
+  theme_minimal() +
+  scale_color_viridis(discrete = TRUE) +
+  scale_y_continuous(limits = c(20, 80)) +
+  theme(
+    plot.title = element_text(size = 22, face = "bold", hjust = 0.5, color = "black"),  
+    axis.text.x = element_text(size = 12, color = "black"),   
+    axis.text.y = element_text(size = 12, color = "black"),   
+    #axis.text.y = element_text(size = 16, color = "black"),   
+    legend.position = "none",
+    legend.text = element_text(color = "black"),             
+    legend.title = element_text(color = "black")             
+  )
+
+Japan = ggplot(Japan_index_long, aes(x = Year, y = Value*100)) +
+  geom_jitter(aes(color = Paper), width = 0, size = 0.9, alpha = 0.7) +
+  geom_boxplot(aes(group = Year), color = "#666666",alpha = 1, outlier.shape = NA, size = 0.3) +
+  geom_smooth(aes(group = 1), method = "loess", color = "red", fill = "gray", alpha = 0.3, size = 1.2, span = 0.50) +
+  labs(title = "Japan", y = NULL, x = NULL) +
+  theme_minimal() +
+  scale_color_viridis(discrete = TRUE) +
+  scale_y_continuous(limits = c(20, 80)) +
+  theme(
+    plot.title = element_text(size = 22, face = "bold", hjust = 0.5, color = "black"),  
+    axis.text.x = element_text(size = 12, color = "black"),   
+    #axis.text.y = element_text(size = 12, color = "black"),   
+    #axis.text.y = element_text(size = 16, color = "black"),   
+    legend.position = "none",
+    legend.text = element_text(color = "black"),             
+    legend.title = element_text(color = "black")             
+  )
+
+UK = ggplot(UK_index_long, aes(x = Year, y = Value*100)) +
+  geom_jitter(aes(color = Paper), width = 0, size = 0.9, alpha = 0.7) +
+  geom_boxplot(aes(group = Year), color = "#666666",alpha = 1, outlier.shape = NA, size = 0.3) +
+  geom_smooth(aes(group = 1), method = "loess", color = "red", fill = "gray", alpha = 0.3, size = 1.2, span = 0.50) +
+  labs(title = "the U.K.", y = NULL, x = NULL) +
+  theme_minimal() +
+  scale_color_viridis(discrete = TRUE) +
+  scale_y_continuous(limits = c(20, 80)) +
+  theme(
+    plot.title = element_text(size = 22, face = "bold", hjust = 0.5, color = "black"),  
+    axis.text.x = element_text(size = 12, color = "black"),   
+    axis.text.y = element_text(size = 12, color = "black"),   
+    #axis.text.y = element_text(size = 16, color = "black"),   
+    legend.position = "none",
+    legend.text = element_text(color = "black"),             
+    legend.title = element_text(color = "black")             
+  )
+
+Germany = ggplot(Germany_index_long, aes(x = Year, y = Value*100)) +
+  geom_jitter(aes(color = Paper), width = 0, size = 0.9, alpha = 0.7) +
+  geom_boxplot(aes(group = Year), color = "#666666",alpha = 1, outlier.shape = NA, size = 0.3) +
+  geom_smooth(aes(group = 1), method = "loess", color = "red", fill = "gray", alpha = 0.3, size = 1.2, span = 0.50) +
+  labs(title = "Germany", y = NULL, x = NULL) +
+  theme_minimal() +
+  scale_color_viridis(discrete = TRUE) +
+  scale_y_continuous(limits = c(20, 80)) +
+  theme(
+    plot.title = element_text(size = 22, face = "bold", hjust = 0.5, color = "black"),  
+    axis.text.x = element_text(size = 12, color = "black"),   
+    axis.text.y = element_text(size = 12, color = "black"),   
+    #axis.text.y = element_text(size = 16, color = "black"),   
+    legend.position = "none",
+    legend.text = element_text(color = "black"),             
+    legend.title = element_text(color = "black")             
+  )
+
 France = ggplot(France_index_long, aes(x = Year, y = Value*100)) +
   geom_jitter(aes(color = Paper), width = 0, size = 0.9, alpha = 0.7) +
   geom_boxplot(aes(group = Year), color = "#666666",alpha = 1, outlier.shape = NA, size = 0.3) +
@@ -130,7 +220,7 @@ France = ggplot(France_index_long, aes(x = Year, y = Value*100)) +
     legend.title = element_text(color = "black")             
   )
 
-
+###save figure#######################################################################################################
 install.packages("patchwork")
 library(patchwork)
 ggsave("ESI_plot.pdf", plot = (US | China | Japan) / (UK | Germany | France), width = 16, height = 10, dpi = 300)
