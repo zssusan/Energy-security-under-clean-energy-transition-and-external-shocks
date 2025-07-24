@@ -8,5 +8,5 @@ code file2: Key drivers of ESI: a Python script corresponding to the section Key
 
 code file3: Scenario prediction of ESI: a Python script corresponding to the section ESI prediction in multiple scenarios.
 
-dataset:The file Scenario prediiction data contains scenario inputs for six countries.
+dataset:The file Prediiction scenario data contains scenario inputs for six countries.
 
