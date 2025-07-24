@@ -1,0 +1,977 @@
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import numpy as np
+import pandas as pd
+from sklearn.preprocessing import StandardScaler
+import matplotlib.pyplot as plt
+import random
+
+
+def set_seed(seed=42):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(seed)
+        torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+
+set_seed(42)
+
+#### US ##############################################################################
+df = pd.DataFrame(sheet_name="US")
+features = ['ES21', 'ES2', 'ES3', 'ES4', 'ES5', 'ES6', 'ES7', 'ES8', 'ES9',
+            'ES10', 'ES11', 'ES12',
+            'ED1', 'ED2', 'ED3', 'ED4', 'ED5', 'ED6', 'ED7', 'ED8',
+            'EC1', 'EC2', 'EC3', 'EN1', 'EN2', 'GO1']
+target = 'ESI'
+
+
+X = df[features].values
+y = df[target].values.reshape(-1, 1)
+
+
+history_split_point = -30  
+X_history = X[:history_split_point]
+y_history = y[:history_split_point]
+X_pred = X[history_split_point:]  
+
+scaler_X = StandardScaler()
+scaler_y = StandardScaler()
+
+X_history = scaler_X.fit_transform(X_history)
+y_history = scaler_y.fit_transform(y_history)
+X_pred = scaler_X.transform(X_pred)
+
+split_point = -6  
+X_train = X_history[:split_point]
+X_test = X_history[split_point:]
+y_train = y_history[:split_point]
+y_test = y_history[split_point:]
+
+X_train_tensor = torch.FloatTensor(X_train)
+y_train_tensor = torch.FloatTensor(y_train)
+X_test_tensor = torch.FloatTensor(X_test)
+y_test_tensor = torch.FloatTensor(y_test)
+X_pred_tensor = torch.FloatTensor(X_pred)
+
+
+####model###########
+class ESIDataset(torch.utils.data.Dataset):
+    def __init__(self, X, y):
+        self.X = X
+        self.y = y
+
+    def __len__(self):
+        return len(self.X)
+
+    def __getitem__(self, idx):
+        return self.X[idx], self.y[idx]
+
+
+train_dataset = ESIDataset(X_train_tensor, y_train_tensor)
+train_loader = torch.utils.data.DataLoader(train_dataset,
+                                           batch_size=1,
+                                           shuffle=True)
+
+
+class ESIPredictor(nn.Module):
+    def __init__(self, input_size):
+        super(ESIPredictor, self).__init__()
+        self.layer1 = nn.Linear(input_size, 64)
+        self.layer3 = nn.Linear(64, 32)
+        self.output = nn.Linear(32, 1)
+        self.dropout = nn.Dropout(0.5)
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+        x = self.relu(self.layer1(x))
+        x = self.dropout(x)
+        x = self.relu(self.layer3(x))
+        x = self.dropout(x)
+        x = self.output(x)
+        return x
+
+input_size = X_train.shape[1]
+model = ESIPredictor(input_size)
+
+criterion = nn.L1Loss()
+optimizer = optim.AdamW(model.parameters(), lr=0.00001, weight_decay=1e-4)
+num_epochs = 1500
+train_losses = []
+
+for epoch in range(num_epochs):
+    model.train()
+    running_loss = 0.0
+    for inputs, labels in train_loader:
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+        running_loss += loss.item()
+
+    epoch_loss = running_loss / len(train_loader)
+    train_losses.append(epoch_loss)
+
+    if (epoch + 1) % 100 == 0:
+        print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {epoch_loss:.6f}')
+
+torch.save(model.state_dict(), "saved.pth")
+
+
+model.eval()
+with torch.no_grad():
+    train_preds = model(X_train_tensor)
+    train_loss = criterion(train_preds, y_train_tensor)
+    test_preds = model(X_test_tensor)
+    test_loss = criterion(test_preds, y_test_tensor)
+    forecast_preds = model(X_pred_tensor)
+
+
+y_train_true = scaler_y.inverse_transform(y_train)
+y_train_pred = scaler_y.inverse_transform(train_preds.numpy())
+
+y_test_true = scaler_y.inverse_transform(y_test)
+y_test_pred = scaler_y.inverse_transform(test_preds.numpy())
+
+y_forecast_pred = scaler_y.inverse_transform(forecast_preds.numpy())
+
+history_years = df['Year'][:history_split_point].values
+train_years = history_years[:split_point]
+test_years = history_years[split_point:]
+forecast_years = df['Year'][history_split_point:].values
+
+# plot figure#
+plt.figure(figsize=(12, 8))
+plt.plot(train_years, y_train_true, 'bo-', label='True Training ESI', linewidth=2)
+plt.plot(train_years, y_train_pred, 'yo--', label='Training Prediction', markersize=8)
+plt.plot(test_years, y_test_true, 'go-', label='True Test ESI', linewidth=2)
+plt.plot(test_years, y_test_pred, 'mo--', label='Test Prediction', markersize=8)
+plt.plot(forecast_years, y_forecast_pred, 'ro--', label='Forecast', markersize=8)
+
+plt.xlabel('Year', fontsize=14)
+plt.ylabel('ESI', fontsize=14)
+plt.title('US', fontsize=16, fontweight='bold')
+plt.ylim(0.4, 0.8)
+plt.legend(fontsize=12)
+plt.grid(True, linestyle='--', alpha=0.7)
+plt.tight_layout()
+plt.savefig('esi_prediction.png', dpi=300)
+plt.show()
+
+# print result#
+print("\nTraining Set:")
+print("Year\tTrue ESI\tPredicted ESI")
+for i, year in enumerate(train_years):
+    print(f"{year}\t{y_train_true[i][0]:.4f}\t\t{y_train_pred[i][0]:.4f}")
+
+print("\nTest Set:")
+print("Year\tTrue ESI\tPredicted ESI")
+for i, year in enumerate(test_years):
+    print(f"{year}\t{y_test_true[i][0]:.4f}\t\t{y_test_pred[i][0]:.4f}")
+
+print("\nForecast:")
+print("Year\tPredicted ESI")
+for i, year in enumerate(forecast_years):
+    print(f"{year}\t{y_forecast_pred[i][0]:.4f}")
+
+
+
+#### China ##############################################################################
+df = pd.DataFrame(sheet_name="China")
+features = ['ES21', 'ES2', 'ES3', 'ES4', 'ES5', 'ES6', 'ES7', 'ES8', 'ES9',
+            'ES10', 'ES11', 'ES12',
+            'ED1', 'ED2', 'ED3', 'ED4', 'ED5', 'ED6', 'ED7', 'ED8',
+            'EC1', 'EC2', 'EC3', 'EN1', 'EN2', 'GO1']
+target = 'ESI'
+
+
+X = df[features].values
+y = df[target].values.reshape(-1, 1)
+
+
+history_split_point = -30  
+X_history = X[:history_split_point]
+y_history = y[:history_split_point]
+X_pred = X[history_split_point:]  
+
+scaler_X = StandardScaler()
+scaler_y = StandardScaler()
+
+X_history = scaler_X.fit_transform(X_history)
+y_history = scaler_y.fit_transform(y_history)
+X_pred = scaler_X.transform(X_pred)
+
+split_point = -6  
+X_train = X_history[:split_point]
+X_test = X_history[split_point:]
+y_train = y_history[:split_point]
+y_test = y_history[split_point:]
+
+X_train_tensor = torch.FloatTensor(X_train)
+y_train_tensor = torch.FloatTensor(y_train)
+X_test_tensor = torch.FloatTensor(X_test)
+y_test_tensor = torch.FloatTensor(y_test)
+X_pred_tensor = torch.FloatTensor(X_pred)
+
+
+####model###########
+class ESIDataset(torch.utils.data.Dataset):
+    def __init__(self, X, y):
+        self.X = X
+        self.y = y
+
+    def __len__(self):
+        return len(self.X)
+
+    def __getitem__(self, idx):
+        return self.X[idx], self.y[idx]
+
+
+train_dataset = ESIDataset(X_train_tensor, y_train_tensor)
+train_loader = torch.utils.data.DataLoader(train_dataset,
+                                           batch_size=1,
+                                           shuffle=True)
+
+
+class ESIPredictor(nn.Module):
+    def __init__(self, input_size):
+        super(ESIPredictor, self).__init__()
+        self.layer1 = nn.Linear(input_size, 64)
+        self.layer3 = nn.Linear(64, 32)
+        self.output = nn.Linear(32, 1)
+        self.dropout = nn.Dropout(0.5)
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+        x = self.relu(self.layer1(x))
+        x = self.dropout(x)
+        x = self.relu(self.layer3(x))
+        x = self.dropout(x)
+        x = self.output(x)
+        return x
+
+input_size = X_train.shape[1]
+model = ESIPredictor(input_size)
+
+criterion = nn.L1Loss()
+optimizer = optim.AdamW(model.parameters(), lr=0.00001, weight_decay=1e-4)
+num_epochs = 1500
+train_losses = []
+
+for epoch in range(num_epochs):
+    model.train()
+    running_loss = 0.0
+    for inputs, labels in train_loader:
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+        running_loss += loss.item()
+
+    epoch_loss = running_loss / len(train_loader)
+    train_losses.append(epoch_loss)
+
+    if (epoch + 1) % 100 == 0:
+        print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {epoch_loss:.6f}')
+
+torch.save(model.state_dict(), "saved.pth")
+
+
+model.eval()
+with torch.no_grad():
+    train_preds = model(X_train_tensor)
+    train_loss = criterion(train_preds, y_train_tensor)
+    test_preds = model(X_test_tensor)
+    test_loss = criterion(test_preds, y_test_tensor)
+    forecast_preds = model(X_pred_tensor)
+
+
+y_train_true = scaler_y.inverse_transform(y_train)
+y_train_pred = scaler_y.inverse_transform(train_preds.numpy())
+
+y_test_true = scaler_y.inverse_transform(y_test)
+y_test_pred = scaler_y.inverse_transform(test_preds.numpy())
+
+y_forecast_pred = scaler_y.inverse_transform(forecast_preds.numpy())
+
+history_years = df['Year'][:history_split_point].values
+train_years = history_years[:split_point]
+test_years = history_years[split_point:]
+forecast_years = df['Year'][history_split_point:].values
+
+# plot figure#
+plt.figure(figsize=(12, 8))
+plt.plot(train_years, y_train_true, 'bo-', label='True Training ESI', linewidth=2)
+plt.plot(train_years, y_train_pred, 'yo--', label='Training Prediction', markersize=8)
+plt.plot(test_years, y_test_true, 'go-', label='True Test ESI', linewidth=2)
+plt.plot(test_years, y_test_pred, 'mo--', label='Test Prediction', markersize=8)
+plt.plot(forecast_years, y_forecast_pred, 'ro--', label='Forecast', markersize=8)
+
+plt.xlabel('Year', fontsize=14)
+plt.ylabel('ESI', fontsize=14)
+plt.title('US', fontsize=16, fontweight='bold')
+plt.ylim(0.4, 0.8)
+plt.legend(fontsize=12)
+plt.grid(True, linestyle='--', alpha=0.7)
+plt.tight_layout()
+plt.savefig('esi_prediction.png', dpi=300)
+plt.show()
+
+# print result#
+print("\nTraining Set:")
+print("Year\tTrue ESI\tPredicted ESI")
+for i, year in enumerate(train_years):
+    print(f"{year}\t{y_train_true[i][0]:.4f}\t\t{y_train_pred[i][0]:.4f}")
+
+print("\nTest Set:")
+print("Year\tTrue ESI\tPredicted ESI")
+for i, year in enumerate(test_years):
+    print(f"{year}\t{y_test_true[i][0]:.4f}\t\t{y_test_pred[i][0]:.4f}")
+
+print("\nForecast:")
+print("Year\tPredicted ESI")
+for i, year in enumerate(forecast_years):
+    print(f"{year}\t{y_forecast_pred[i][0]:.4f}")
+
+
+#### Japan ##############################################################################
+df = pd.DataFrame(sheet_name="Japan")
+features = ['ES21', 'ES2', 'ES3', 'ES4', 'ES5', 'ES6', 'ES7', 'ES8', 'ES9',
+            'ES10', 'ES11', 'ES12',
+            'ED1', 'ED2', 'ED3', 'ED4', 'ED5', 'ED6', 'ED7', 'ED8',
+            'EC1', 'EC2', 'EC3', 'EN1', 'EN2', 'GO1']
+target = 'ESI'
+
+
+X = df[features].values
+y = df[target].values.reshape(-1, 1)
+
+
+history_split_point = -30  
+X_history = X[:history_split_point]
+y_history = y[:history_split_point]
+X_pred = X[history_split_point:]  
+
+scaler_X = StandardScaler()
+scaler_y = StandardScaler()
+
+X_history = scaler_X.fit_transform(X_history)
+y_history = scaler_y.fit_transform(y_history)
+X_pred = scaler_X.transform(X_pred)
+
+split_point = -6  
+X_train = X_history[:split_point]
+X_test = X_history[split_point:]
+y_train = y_history[:split_point]
+y_test = y_history[split_point:]
+
+X_train_tensor = torch.FloatTensor(X_train)
+y_train_tensor = torch.FloatTensor(y_train)
+X_test_tensor = torch.FloatTensor(X_test)
+y_test_tensor = torch.FloatTensor(y_test)
+X_pred_tensor = torch.FloatTensor(X_pred)
+
+
+#model#
+class ESIDataset(torch.utils.data.Dataset):
+    def __init__(self, X, y):
+        self.X = X
+        self.y = y
+
+    def __len__(self):
+        return len(self.X)
+
+    def __getitem__(self, idx):
+        return self.X[idx], self.y[idx]
+
+
+train_dataset = ESIDataset(X_train_tensor, y_train_tensor)
+train_loader = torch.utils.data.DataLoader(train_dataset,
+                                           batch_size=1,
+                                           shuffle=True)
+
+
+class ESIPredictor(nn.Module):
+    def __init__(self, input_size):
+        super(ESIPredictor, self).__init__()
+        self.layer1 = nn.Linear(input_size, 64)
+        self.layer3 = nn.Linear(64, 32)
+        self.output = nn.Linear(32, 1)
+        self.dropout = nn.Dropout(0.5)
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+        x = self.relu(self.layer1(x))
+        x = self.dropout(x)
+        x = self.relu(self.layer3(x))
+        x = self.dropout(x)
+        x = self.output(x)
+        return x
+
+input_size = X_train.shape[1]
+model = ESIPredictor(input_size)
+
+criterion = nn.L1Loss()
+optimizer = optim.AdamW(model.parameters(), lr=0.00001, weight_decay=1e-4)
+num_epochs = 1500
+train_losses = []
+
+for epoch in range(num_epochs):
+    model.train()
+    running_loss = 0.0
+    for inputs, labels in train_loader:
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+        running_loss += loss.item()
+
+    epoch_loss = running_loss / len(train_loader)
+    train_losses.append(epoch_loss)
+
+    if (epoch + 1) % 100 == 0:
+        print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {epoch_loss:.6f}')
+
+torch.save(model.state_dict(), "saved.pth")
+
+
+model.eval()
+with torch.no_grad():
+    train_preds = model(X_train_tensor)
+    train_loss = criterion(train_preds, y_train_tensor)
+    test_preds = model(X_test_tensor)
+    test_loss = criterion(test_preds, y_test_tensor)
+    forecast_preds = model(X_pred_tensor)
+
+
+y_train_true = scaler_y.inverse_transform(y_train)
+y_train_pred = scaler_y.inverse_transform(train_preds.numpy())
+
+y_test_true = scaler_y.inverse_transform(y_test)
+y_test_pred = scaler_y.inverse_transform(test_preds.numpy())
+
+y_forecast_pred = scaler_y.inverse_transform(forecast_preds.numpy())
+
+history_years = df['Year'][:history_split_point].values
+train_years = history_years[:split_point]
+test_years = history_years[split_point:]
+forecast_years = df['Year'][history_split_point:].values
+
+# plot figure #
+plt.figure(figsize=(12, 8))
+plt.plot(train_years, y_train_true, 'bo-', label='True Training ESI', linewidth=2)
+plt.plot(train_years, y_train_pred, 'yo--', label='Training Prediction', markersize=8)
+plt.plot(test_years, y_test_true, 'go-', label='True Test ESI', linewidth=2)
+plt.plot(test_years, y_test_pred, 'mo--', label='Test Prediction', markersize=8)
+plt.plot(forecast_years, y_forecast_pred, 'ro--', label='Forecast', markersize=8)
+
+plt.xlabel('Year', fontsize=14)
+plt.ylabel('ESI', fontsize=14)
+plt.title('US', fontsize=16, fontweight='bold')
+plt.ylim(0.4, 0.8)
+plt.legend(fontsize=12)
+plt.grid(True, linestyle='--', alpha=0.7)
+plt.tight_layout()
+plt.savefig('esi_prediction.png', dpi=300)
+plt.show()
+
+# print result #
+print("\nTraining Set:")
+print("Year\tTrue ESI\tPredicted ESI")
+for i, year in enumerate(train_years):
+    print(f"{year}\t{y_train_true[i][0]:.4f}\t\t{y_train_pred[i][0]:.4f}")
+
+print("\nTest Set:")
+print("Year\tTrue ESI\tPredicted ESI")
+for i, year in enumerate(test_years):
+    print(f"{year}\t{y_test_true[i][0]:.4f}\t\t{y_test_pred[i][0]:.4f}")
+
+print("\nForecast:")
+print("Year\tPredicted ESI")
+for i, year in enumerate(forecast_years):
+    print(f"{year}\t{y_forecast_pred[i][0]:.4f}")
+
+
+#### UK ##############################################################################
+df = pd.DataFrame(sheet_name="UK")
+features = ['ES21', 'ES2', 'ES3', 'ES4', 'ES5', 'ES6', 'ES7', 'ES8', 'ES9',
+            'ES10', 'ES11', 'ES12',
+            'ED1', 'ED2', 'ED3', 'ED4', 'ED5', 'ED6', 'ED7', 'ED8',
+            'EC1', 'EC2', 'EC3', 'EN1', 'EN2', 'GO1']
+target = 'ESI'
+
+
+X = df[features].values
+y = df[target].values.reshape(-1, 1)
+
+
+history_split_point = -30  
+X_history = X[:history_split_point]
+y_history = y[:history_split_point]
+X_pred = X[history_split_point:]  
+
+scaler_X = StandardScaler()
+scaler_y = StandardScaler()
+
+
+X_history = scaler_X.fit_transform(X_history)
+y_history = scaler_y.fit_transform(y_history)
+X_pred = scaler_X.transform(X_pred)
+
+split_point = -6  
+X_train = X_history[:split_point]
+X_test = X_history[split_point:]
+y_train = y_history[:split_point]
+y_test = y_history[split_point:]
+
+X_train_tensor = torch.FloatTensor(X_train)
+y_train_tensor = torch.FloatTensor(y_train)
+X_test_tensor = torch.FloatTensor(X_test)
+y_test_tensor = torch.FloatTensor(y_test)
+X_pred_tensor = torch.FloatTensor(X_pred)
+
+
+#model#
+class ESIDataset(torch.utils.data.Dataset):
+    def __init__(self, X, y):
+        self.X = X
+        self.y = y
+
+    def __len__(self):
+        return len(self.X)
+
+    def __getitem__(self, idx):
+        return self.X[idx], self.y[idx]
+
+
+train_dataset = ESIDataset(X_train_tensor, y_train_tensor)
+train_loader = torch.utils.data.DataLoader(train_dataset,
+                                           batch_size=1,
+                                           shuffle=True)
+
+
+class ESIPredictor(nn.Module):
+    def __init__(self, input_size):
+        super(ESIPredictor, self).__init__()
+        self.layer1 = nn.Linear(input_size, 64)
+        self.layer3 = nn.Linear(64, 32)
+        self.output = nn.Linear(32, 1)
+        self.dropout = nn.Dropout(0.5)
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+        x = self.relu(self.layer1(x))
+        x = self.dropout(x)
+        x = self.relu(self.layer3(x))
+        x = self.dropout(x)
+        x = self.output(x)
+        return x
+
+input_size = X_train.shape[1]
+model = ESIPredictor(input_size)
+
+criterion = nn.L1Loss()
+optimizer = optim.AdamW(model.parameters(), lr=0.00001, weight_decay=1e-4)
+num_epochs = 1500
+train_losses = []
+
+for epoch in range(num_epochs):
+    model.train()
+    running_loss = 0.0
+    for inputs, labels in train_loader:
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+        running_loss += loss.item()
+
+    epoch_loss = running_loss / len(train_loader)
+    train_losses.append(epoch_loss)
+
+    if (epoch + 1) % 100 == 0:
+        print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {epoch_loss:.6f}')
+
+torch.save(model.state_dict(), "saved.pth")
+
+
+model.eval()
+with torch.no_grad():
+    train_preds = model(X_train_tensor)
+    train_loss = criterion(train_preds, y_train_tensor)
+    test_preds = model(X_test_tensor)
+    test_loss = criterion(test_preds, y_test_tensor)
+    forecast_preds = model(X_pred_tensor)
+
+
+y_train_true = scaler_y.inverse_transform(y_train)
+y_train_pred = scaler_y.inverse_transform(train_preds.numpy())
+
+y_test_true = scaler_y.inverse_transform(y_test)
+y_test_pred = scaler_y.inverse_transform(test_preds.numpy())
+
+y_forecast_pred = scaler_y.inverse_transform(forecast_preds.numpy())
+
+history_years = df['Year'][:history_split_point].values
+train_years = history_years[:split_point]
+test_years = history_years[split_point:]
+forecast_years = df['Year'][history_split_point:].values
+
+# plot figure#
+plt.figure(figsize=(12, 8))
+plt.plot(train_years, y_train_true, 'bo-', label='True Training ESI', linewidth=2)
+plt.plot(train_years, y_train_pred, 'yo--', label='Training Prediction', markersize=8)
+plt.plot(test_years, y_test_true, 'go-', label='True Test ESI', linewidth=2)
+plt.plot(test_years, y_test_pred, 'mo--', label='Test Prediction', markersize=8)
+plt.plot(forecast_years, y_forecast_pred, 'ro--', label='Forecast', markersize=8)
+
+plt.xlabel('Year', fontsize=14)
+plt.ylabel('ESI', fontsize=14)
+plt.title('US', fontsize=16, fontweight='bold')
+plt.ylim(0.4, 0.8)
+plt.legend(fontsize=12)
+plt.grid(True, linestyle='--', alpha=0.7)
+plt.tight_layout()
+plt.savefig('esi_prediction.png', dpi=300)
+plt.show()
+
+# print result#
+print("\nTraining Set:")
+print("Year\tTrue ESI\tPredicted ESI")
+for i, year in enumerate(train_years):
+    print(f"{year}\t{y_train_true[i][0]:.4f}\t\t{y_train_pred[i][0]:.4f}")
+
+print("\nTest Set:")
+print("Year\tTrue ESI\tPredicted ESI")
+for i, year in enumerate(test_years):
+    print(f"{year}\t{y_test_true[i][0]:.4f}\t\t{y_test_pred[i][0]:.4f}")
+
+print("\nForecast:")
+print("Year\tPredicted ESI")
+for i, year in enumerate(forecast_years):
+    print(f"{year}\t{y_forecast_pred[i][0]:.4f}")
+
+
+#### Germany #################################################
+df = pd.DataFrame(sheet_name="Germany")
+features = ['ES21', 'ES2', 'ES3', 'ES4', 'ES5', 'ES6', 'ES7', 'ES8', 'ES9',
+            'ES10', 'ES11', 'ES12',
+            'ED1', 'ED2', 'ED3', 'ED4', 'ED5', 'ED6', 'ED7', 'ED8',
+            'EC1', 'EC2', 'EC3', 'EN1', 'EN2', 'GO1']
+target = 'ESI'
+
+
+X = df[features].values
+y = df[target].values.reshape(-1, 1)
+
+
+history_split_point = -30  
+X_history = X[:history_split_point]
+y_history = y[:history_split_point]
+X_pred = X[history_split_point:]  
+
+scaler_X = StandardScaler()
+scaler_y = StandardScaler()
+
+X_history = scaler_X.fit_transform(X_history)
+y_history = scaler_y.fit_transform(y_history)
+X_pred = scaler_X.transform(X_pred)
+
+split_point = -6  
+X_train = X_history[:split_point]
+X_test = X_history[split_point:]
+y_train = y_history[:split_point]
+y_test = y_history[split_point:]
+
+X_train_tensor = torch.FloatTensor(X_train)
+y_train_tensor = torch.FloatTensor(y_train)
+X_test_tensor = torch.FloatTensor(X_test)
+y_test_tensor = torch.FloatTensor(y_test)
+X_pred_tensor = torch.FloatTensor(X_pred)
+
+
+####model###########
+class ESIDataset(torch.utils.data.Dataset):
+    def __init__(self, X, y):
+        self.X = X
+        self.y = y
+
+    def __len__(self):
+        return len(self.X)
+
+    def __getitem__(self, idx):
+        return self.X[idx], self.y[idx]
+
+
+train_dataset = ESIDataset(X_train_tensor, y_train_tensor)
+train_loader = torch.utils.data.DataLoader(train_dataset,
+                                           batch_size=1,
+                                           shuffle=True)
+
+
+class ESIPredictor(nn.Module):
+    def __init__(self, input_size):
+        super(ESIPredictor, self).__init__()
+        self.layer1 = nn.Linear(input_size, 64)
+        self.layer3 = nn.Linear(64, 32)
+        self.output = nn.Linear(32, 1)
+        self.dropout = nn.Dropout(0.5)
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+        x = self.relu(self.layer1(x))
+        x = self.dropout(x)
+        x = self.relu(self.layer3(x))
+        x = self.dropout(x)
+        x = self.output(x)
+        return x
+
+input_size = X_train.shape[1]
+model = ESIPredictor(input_size)
+
+criterion = nn.L1Loss()
+optimizer = optim.AdamW(model.parameters(), lr=0.00001, weight_decay=1e-4)
+num_epochs = 1500
+train_losses = []
+
+for epoch in range(num_epochs):
+    model.train()
+    running_loss = 0.0
+    for inputs, labels in train_loader:
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+        running_loss += loss.item()
+
+    epoch_loss = running_loss / len(train_loader)
+    train_losses.append(epoch_loss)
+
+    if (epoch + 1) % 100 == 0:
+        print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {epoch_loss:.6f}')
+
+torch.save(model.state_dict(), "saved.pth")
+
+
+model.eval()
+with torch.no_grad():
+    train_preds = model(X_train_tensor)
+    train_loss = criterion(train_preds, y_train_tensor)
+    test_preds = model(X_test_tensor)
+    test_loss = criterion(test_preds, y_test_tensor)
+    forecast_preds = model(X_pred_tensor)
+
+
+y_train_true = scaler_y.inverse_transform(y_train)
+y_train_pred = scaler_y.inverse_transform(train_preds.numpy())
+
+y_test_true = scaler_y.inverse_transform(y_test)
+y_test_pred = scaler_y.inverse_transform(test_preds.numpy())
+
+y_forecast_pred = scaler_y.inverse_transform(forecast_preds.numpy())
+
+history_years = df['Year'][:history_split_point].values
+train_years = history_years[:split_point]
+test_years = history_years[split_point:]
+forecast_years = df['Year'][history_split_point:].values
+
+# plot figure#
+plt.figure(figsize=(12, 8))
+plt.plot(train_years, y_train_true, 'bo-', label='True Training ESI', linewidth=2)
+plt.plot(train_years, y_train_pred, 'yo--', label='Training Prediction', markersize=8)
+plt.plot(test_years, y_test_true, 'go-', label='True Test ESI', linewidth=2)
+plt.plot(test_years, y_test_pred, 'mo--', label='Test Prediction', markersize=8)
+plt.plot(forecast_years, y_forecast_pred, 'ro--', label='Forecast', markersize=8)
+
+plt.xlabel('Year', fontsize=14)
+plt.ylabel('ESI', fontsize=14)
+plt.title('US', fontsize=16, fontweight='bold')
+plt.ylim(0.4, 0.8)
+plt.legend(fontsize=12)
+plt.grid(True, linestyle='--', alpha=0.7)
+plt.tight_layout()
+plt.savefig('esi_prediction.png', dpi=300)
+plt.show()
+
+# print result#
+print("\nTraining Set:")
+print("Year\tTrue ESI\tPredicted ESI")
+for i, year in enumerate(train_years):
+    print(f"{year}\t{y_train_true[i][0]:.4f}\t\t{y_train_pred[i][0]:.4f}")
+
+print("\nTest Set:")
+print("Year\tTrue ESI\tPredicted ESI")
+for i, year in enumerate(test_years):
+    print(f"{year}\t{y_test_true[i][0]:.4f}\t\t{y_test_pred[i][0]:.4f}")
+
+print("\nForecast:")
+print("Year\tPredicted ESI")
+for i, year in enumerate(forecast_years):
+    print(f"{year}\t{y_forecast_pred[i][0]:.4f}")
+
+
+#### France #################################################
+df = pd.DataFrame(sheet_name="France")
+features = ['ES21', 'ES2', 'ES3', 'ES4', 'ES5', 'ES6', 'ES7', 'ES8', 'ES9',
+            'ES10', 'ES11', 'ES12',
+            'ED1', 'ED2', 'ED3', 'ED4', 'ED5', 'ED6', 'ED7', 'ED8',
+            'EC1', 'EC2', 'EC3', 'EN1', 'EN2', 'GO1']
+target = 'ESI'
+
+
+X = df[features].values
+y = df[target].values.reshape(-1, 1)
+
+
+history_split_point = -30  
+X_history = X[:history_split_point]
+y_history = y[:history_split_point]
+X_pred = X[history_split_point:]  
+
+scaler_X = StandardScaler()
+scaler_y = StandardScaler()
+
+X_history = scaler_X.fit_transform(X_history)
+y_history = scaler_y.fit_transform(y_history)
+X_pred = scaler_X.transform(X_pred)
+
+split_point = -6  
+X_train = X_history[:split_point]
+X_test = X_history[split_point:]
+y_train = y_history[:split_point]
+y_test = y_history[split_point:]
+
+X_train_tensor = torch.FloatTensor(X_train)
+y_train_tensor = torch.FloatTensor(y_train)
+X_test_tensor = torch.FloatTensor(X_test)
+y_test_tensor = torch.FloatTensor(y_test)
+X_pred_tensor = torch.FloatTensor(X_pred)
+
+
+####model###########
+class ESIDataset(torch.utils.data.Dataset):
+    def __init__(self, X, y):
+        self.X = X
+        self.y = y
+
+    def __len__(self):
+        return len(self.X)
+
+    def __getitem__(self, idx):
+        return self.X[idx], self.y[idx]
+
+
+train_dataset = ESIDataset(X_train_tensor, y_train_tensor)
+train_loader = torch.utils.data.DataLoader(train_dataset,
+                                           batch_size=1,
+                                           shuffle=True)
+
+
+class ESIPredictor(nn.Module):
+    def __init__(self, input_size):
+        super(ESIPredictor, self).__init__()
+        self.layer1 = nn.Linear(input_size, 64)
+        self.layer3 = nn.Linear(64, 32)
+        self.output = nn.Linear(32, 1)
+        self.dropout = nn.Dropout(0.5)
+        self.relu = nn.ReLU()
+
+    def forward(self, x):
+        x = self.relu(self.layer1(x))
+        x = self.dropout(x)
+        x = self.relu(self.layer3(x))
+        x = self.dropout(x)
+        x = self.output(x)
+        return x
+
+input_size = X_train.shape[1]
+model = ESIPredictor(input_size)
+
+criterion = nn.L1Loss()
+optimizer = optim.AdamW(model.parameters(), lr=0.00001, weight_decay=1e-4)
+num_epochs = 1500
+train_losses = []
+
+for epoch in range(num_epochs):
+    model.train()
+    running_loss = 0.0
+    for inputs, labels in train_loader:
+        optimizer.zero_grad()
+        outputs = model(inputs)
+        loss = criterion(outputs, labels)
+        loss.backward()
+        optimizer.step()
+        running_loss += loss.item()
+
+    epoch_loss = running_loss / len(train_loader)
+    train_losses.append(epoch_loss)
+
+    if (epoch + 1) % 100 == 0:
+        print(f'Epoch [{epoch + 1}/{num_epochs}], Loss: {epoch_loss:.6f}')
+
+torch.save(model.state_dict(), "saved.pth")
+
+
+model.eval()
+with torch.no_grad():
+    train_preds = model(X_train_tensor)
+    train_loss = criterion(train_preds, y_train_tensor)
+    test_preds = model(X_test_tensor)
+    test_loss = criterion(test_preds, y_test_tensor)
+    forecast_preds = model(X_pred_tensor)
+
+
+y_train_true = scaler_y.inverse_transform(y_train)
+y_train_pred = scaler_y.inverse_transform(train_preds.numpy())
+
+y_test_true = scaler_y.inverse_transform(y_test)
+y_test_pred = scaler_y.inverse_transform(test_preds.numpy())
+
+y_forecast_pred = scaler_y.inverse_transform(forecast_preds.numpy())
+
+history_years = df['Year'][:history_split_point].values
+train_years = history_years[:split_point]
+test_years = history_years[split_point:]
+forecast_years = df['Year'][history_split_point:].values
+
+# plot figure#
+plt.figure(figsize=(12, 8))
+plt.plot(train_years, y_train_true, 'bo-', label='True Training ESI', linewidth=2)
+plt.plot(train_years, y_train_pred, 'yo--', label='Training Prediction', markersize=8)
+plt.plot(test_years, y_test_true, 'go-', label='True Test ESI', linewidth=2)
+plt.plot(test_years, y_test_pred, 'mo--', label='Test Prediction', markersize=8)
+plt.plot(forecast_years, y_forecast_pred, 'ro--', label='Forecast', markersize=8)
+
+plt.xlabel('Year', fontsize=14)
+plt.ylabel('ESI', fontsize=14)
+plt.title('US', fontsize=16, fontweight='bold')
+plt.ylim(0.4, 0.8)
+plt.legend(fontsize=12)
+plt.grid(True, linestyle='--', alpha=0.7)
+plt.tight_layout()
+plt.savefig('esi_prediction.png', dpi=300)
+plt.show()
+
+# print result#
+print("\nTraining Set:")
+print("Year\tTrue ESI\tPredicted ESI")
+for i, year in enumerate(train_years):
+    print(f"{year}\t{y_train_true[i][0]:.4f}\t\t{y_train_pred[i][0]:.4f}")
+
+print("\nTest Set:")
+print("Year\tTrue ESI\tPredicted ESI")
+for i, year in enumerate(test_years):
+    print(f"{year}\t{y_test_true[i][0]:.4f}\t\t{y_test_pred[i][0]:.4f}")
+
+print("\nForecast:")
+print("Year\tPredicted ESI")
+for i, year in enumerate(forecast_years):
+    print(f"{year}\t{y_forecast_pred[i][0]:.4f}")
+
